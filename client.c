@@ -9,15 +9,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <signal.h>
 
 #define BUFSIZE 512
-/*#define CLIENT_MESSAGE	'0'
-#define CLIENT_JOINED		'1'
-#define CLIENT_LEAVED		'2'
-#define CLIENT_CONNECTED	'3'
-#define CLIENT_DISCONNECTED	'4'*/
 
 int sockfd;
+
+void AtInterruption(int sig)
+{
+	char *out;
+	
+	out = "!exit\n";
+	write(sockfd, out, strlen(out));
+	close(sockfd);
+	exit(0);
+}
 
 void *ReceiverThread(void *arg)
 {
@@ -25,8 +31,11 @@ void *ReceiverThread(void *arg)
 	
 	while (1) {
 		memset(buf, '\0', BUFSIZE);
-		read(sockfd, buf, BUFSIZE);
+		if(read(sockfd, buf, BUFSIZE) <= 0)
+			break;
+		write(1, "\r", 1);
 		write(1, buf, strlen(buf));
+		write(1, "\033[1;7m-ME:\033[0m ", 15);
 	}
 	pthread_exit(NULL);
 }
@@ -34,15 +43,11 @@ void *ReceiverThread(void *arg)
 void SenderThread(void)
 {
 	char buf[BUFSIZE];
-//	char mes[BUFSIZE+1];
 	
 	while (1) {
 		memset(buf, '\0', BUFSIZE);
-//		memset(mes, '\0', BUFSIZE);
+		write(1, "\033[1;7m-ME:\033[0m ", 15);
 		read(0, buf, BUFSIZE);
-//		mes[0] = CLIENT_MESSAGE;
-//		strcat(mes, buf);
-//		write(sockfd, mes, strlen(mes));
 		write(sockfd, buf, strlen(buf));
 	}
 }
@@ -54,6 +59,7 @@ void main(void)
 	int result;
 	pthread_t sender, receiver;
 	
+	signal(SIGINT, AtInterruption);
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	address.sin_family = AF_INET;
 	address.sin_addr.s_addr = inet_addr("127.0.0.1");

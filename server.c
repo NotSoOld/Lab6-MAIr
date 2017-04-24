@@ -10,60 +10,91 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <fcntl.h>
+#include <time.h>
+#include <signal.h>
 
 #define BUFSIZE 512
+#define MAXCHATS 32
+#define MAX_USERS_PER_CHAT 32
 
-int clientsfd[BUFSIZE];
-int clientslen[BUFSIZE];
-int curclients;
-struct sockaddr_in clients_addr[BUFSIZE];
+struct clientinfo {
+	int fd;
+	int addrlen;
+	int col;
+	char name[80];
+	struct sockaddr_in addr;
+};
 
-void EraseClient(int n)
+struct chatinfo {
+	int curclients;
+	char title[80];
+	struct clientinfo clients[MAX_USERS_PER_CHAT];
+};
+
+struct chatinfo chats[MAXCHATS];
+int numofchats;
+int server_sockfd;
+
+void AtInterruption(int sig)
 {
+	char *out;
 	int i, j;
 	
-	curclients--;
-	for (i = n; i < curclients; i++) {
-		clientsfd[i] = clientsfd[i+1];
-		clientslen[i] = clientslen[i+1];
-		clients_addr[i] = clients_addr[i+1];
+	out = "\033[1;7;99mSERVER:\033[0m Server was shut down. Connection closed.\n";
+	for (i = 0; i < numofchats; i++) {
+		for(j = 0; j < chats[i].curclients; j++) {
+			write(chats[i].clients[j].fd, out, strlen(out));
+			close(chats[i].clients[j].fd);
+		}
 	}
+	close(server_sockfd);
+	exit(0);
 }
 
 void *Thread_Lobby(void *arg)
 {
 	char buf[BUFSIZE];
-	int i, j;
+	char mes[BUFSIZE+100];
+	int i, j, k, m;
 	
+	m = (intptr_t)arg;
 	while (1) {
-		for (i = 0; i < curclients; i++) {
+		for (i = 0; i < chats[m].curclients; i++) {
 			memset(buf, '\0', BUFSIZE);
-			read(clientsfd[i], buf, BUFSIZE);
-			if (strcmp(buf, "!exit") == 0) {
-				close(clientsfd[i]);
-				EraseClient(i);
+			if(read(chats[m].clients[i].fd, buf, BUFSIZE) == -1)
+				continue;
+			if (strcmp(buf, "!exit\n") == 0) {
+				printf("client %d exited\n", chats[m].clients[i].fd);
+				close(chats[m].clients[i].fd);
+				chats[m].curclients--;
+				for (k = i; k < chats[m].curclients; k++)
+					chats[m].clients[k] = chats[m].clients[k+1];
 				continue;
 			}
-			for (j = 0; j < curclients; j++)
-				if (i != j)
-					write(clientsfd[j], buf, strlen(buf));
+			for (j = 0; j < chats[m].curclients; j++)
+				if (i != j) {
+					memset(mes, '\0', BUFSIZE+100);
+					sprintf(mes, "\033[1;7;38;5;%dm%s:\033[0m %s", 
+							chats[m].clients[i].col, 
+							chats[m].clients[i].name, buf);
+					write(chats[m].clients[j].fd, mes, strlen(mes));
+				}
 		}
 	}
 	
 	pthread_exit(NULL);
 }
 
-
 void main(void)
 {
-	int server_sockfd;
 	int server_len;
 	struct sockaddr_in server_address;
 	char buf[BUFSIZE];
+	char *out;
 	
-	memset(clientsfd, 0, BUFSIZE);
-	memset(clientslen, 0, BUFSIZE);
-	curclients = 0;
+	signal(SIGINT, AtInterruption);
+	numofchats = 0;
 	// Create and bind listening socket.
 	server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	server_address.sin_family = AF_INET;
@@ -90,18 +121,59 @@ void main(void)
 	
 	while (1) {
 		struct sockaddr_in client_address;
+		struct clientinfo newclient;
 		int client_len;
-		int newclient;
+		int newclientfd;
+		int i = 0;
 		
+		memset(&newclient, 0, sizeof(newclient));
 		client_len = sizeof(client_address);
-		newclient = accept(server_sockfd, (struct sockaddr *)&client_address, &client_len);
-		clientsfd[curclients] = newclient;
-		clientslen[curclients] = client_len;
-		clients_addr[curclients] = client_address;
-		curclients++;
-		printf("added client %d\n", newclient);
-		perror(NULL);
+		newclientfd = accept(server_sockfd, 
+						  (struct sockaddr *)&client_address, &client_len);
+						  
+		out = "\033[1;7;99mSERVER:\033[0m What's your nickname?\n";
+		write(newclientfd, out, strlen(out));
+		memset(buf, '\0', BUFSIZE);
+		read(newclientfd, buf, 80);
+		buf[strlen(buf)-1] = '\0';
+		strcpy(newclient.name, buf);
 		
+		out = "\033[1;7;99mSERVER:\033[0m You may join one of existing chats";
+		write(newclientfd, out, strlen(out));
+		out = " or create a new one.\n\n\033[1mList of chats:\033[0m\n";
+		write(newclientfd, out, strlen(out));
+		if (numofchats == 0) {
+			out = "\033[2m<no existing chats>\033[0m\n";
+			write(newclientfd, out, strlen(out));
+			i++;
+		} else {
+			for (i = 0; i < numofchats; i++) {
+				memset(buf, '\0', BUFSIZE);
+				sprintf(buf, "%d: %s\n", i+1, chats[i].title);
+				write(newclientfd, buf, strlen(buf));
+			}
+		}
+		write(newclientfd, "\n", 1);
+		out = "R: Refresh list of chats\n";
+		write(newclientfd, out, strlen(out));
+		out = "C: Create new chat\n";
+		write(newclientfd, out, strlen(out));
+		out = "Q: Quit\n\n\033[1mYour choice? [chat index/R/C/Q]\033[0m\n";
+		write(newclientfd, out, strlen(out));
+		/*
+		fcntl(newclientfd, F_SETFL, fcntl(newclientfd, F_GETFL) | O_NONBLOCK);
+		srand(time(NULL));
+		newclient.col = rand() % 255 + 1;
+		newclient.fd = newclientfd;
+		newclient.addrlen = client_len;
+		newclient.addr = client_address;
+		clients[curclients] = newclient;
+		printf("Added client; fd = %d, name = %s, color = %d\n", 
+				clients[curclients].fd, clients[curclients].name, 
+				clients[curclients].col);
+		curclients++;
+		perror(NULL);
+		*/
 	}
 	
 	pthread_join(thread_lobby, NULL);
