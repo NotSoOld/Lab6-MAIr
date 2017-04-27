@@ -33,19 +33,20 @@ void *ReceiverThread(void *arg)
 		memset(buf, '\0', BUFSIZE);
 		if (read(sockfd, buf, BUFSIZE) <= 0) {
 			perror("Failed to read from server");
-			//break;
-			//continue;
+			break;
 		}
 		// This is signal from server (while attempting to quit in lobby).
 		if (strcmp(buf, "!term") == 0) {
-			// In case we were in chat:
+			write(1, "\r", 1);
 			AtInterruption(6);
 			break;
 		}
+		
 		write(1, "\r", 1);
 		write(1, buf, strlen(buf));
 		write(1, "\033[1;7m-ME:\033[0m ", 15);
 	}
+	
 	pthread_exit(NULL);
 }
 
@@ -59,8 +60,7 @@ void SenderThread(void)
 		read(0, buf, BUFSIZE);
 		if (write(sockfd, buf, strlen(buf)) == -1) {
 			perror("Failed to write to server");
-			//break;
-			//continue;
+			continue;
 		}
 	}
 }
