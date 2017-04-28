@@ -32,21 +32,24 @@ void *ReceiverThread(void *arg)
 	while (1) {
 		memset(buf, '\0', BUFSIZE);
 		if (read(sockfd, buf, BUFSIZE) <= 0) {
-			printf("Failed to read from server. If server was shut down, ignore this message.\n");
+			printf("Failed to read from server.\nIf server"
+				   " was shut down, ignore this message.\n");
 			break;
 		}
-		/* This is signal from server (while attempting to quit in lobby or interrupt itself). */
+		/* This is signal from server 
+		 * (while attempting to quit in lobby or interrupt itself). 
+		 */
 		if (strcmp(buf, "!term") == 0) {
 			write(1, "\r", 1);
 			AtInterruption(6);
 			break;
 		}
-		/*			*/
+
 		write(1, "\33[2K\r", 5);
 		write(1, buf, strlen(buf));
 		write(1, "\033[1;7m-ME:\033[0m ", 15);
 	}
-	/*			*/
+
 	pthread_exit(NULL);
 }
 
@@ -65,13 +68,17 @@ void SenderThread(void)
 	}
 }
 
-void main(void)
+void main(int argc, char *argv[])
 {
 	int len;
 	struct sockaddr_in address;
 	int result;
 	pthread_t sender, receiver;
 	
+	if (argc != 2) {
+		printf("\nUsage: \33[1m./client server-ip-address\33[0m\n\n");
+		exit(6);
+	}
 	signal(SIGINT, AtInterruption);
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd == -1) {
@@ -79,8 +86,8 @@ void main(void)
 		exit(1);
 	}
 	address.sin_family = AF_INET;
-	address.sin_addr.s_addr = inet_addr("127.0.0.1");
-	address.sin_port = htons(9734);
+	address.sin_addr.s_addr = inet_addr(argv[1]);
+	address.sin_port = htons(9000);
 	len = sizeof(address);
 	if (connect(sockfd, (struct sockaddr *)&address, len) == -1) {
 		perror("Failed to connect to server");
@@ -95,7 +102,7 @@ void main(void)
 		perror("Failed to join receiver thread");
 		AtInterruption(5);
 	}
-	/*			*/
+
 	close(sockfd);
 	exit(0);
 }
