@@ -19,7 +19,7 @@ void AtInterruption(int sig)
 {
 	char *out;
 	
-	out = "!exit\n";
+	out = "!killed";
 	write(sockfd, out, strlen(out));
 	close(sockfd);
 	exit(sig);
@@ -32,21 +32,21 @@ void *ReceiverThread(void *arg)
 	while (1) {
 		memset(buf, '\0', BUFSIZE);
 		if (read(sockfd, buf, BUFSIZE) <= 0) {
-			perror("Failed to read from server");
+			printf("Failed to read from server. If server was shut down, ignore this message.\n");
 			break;
 		}
-		// This is signal from server (while attempting to quit in lobby).
+		/* This is signal from server (while attempting to quit in lobby or interrupt itself). */
 		if (strcmp(buf, "!term") == 0) {
 			write(1, "\r", 1);
 			AtInterruption(6);
 			break;
 		}
-		
-		write(1, "\r", 1);
+		/*			*/
+		write(1, "\33[2K\r", 5);
 		write(1, buf, strlen(buf));
 		write(1, "\033[1;7m-ME:\033[0m ", 15);
 	}
-	
+	/*			*/
 	pthread_exit(NULL);
 }
 
@@ -86,7 +86,6 @@ void main(void)
 		perror("Failed to connect to server");
 		exit(3);
 	}
-	
 	if (pthread_create(&receiver, NULL, ReceiverThread, NULL) != 0) {
 		perror("Failed to create receiver thread");
 		AtInterruption(4);
@@ -96,7 +95,7 @@ void main(void)
 		perror("Failed to join receiver thread");
 		AtInterruption(5);
 	}
-	
+	/*			*/
 	close(sockfd);
 	exit(0);
 }

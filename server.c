@@ -15,7 +15,7 @@
 #include <signal.h>
 
 #define BUFSIZE 512
-#define MAXCHATS 32
+#define MAX_CHATS 32
 #define MAX_USERS_PER_CHAT 32
 #define MAX_USERS_IN_LOBBY 32
 #define SERV "\033[1;7;99mSERVER:\033[0m "
@@ -36,7 +36,7 @@ struct chatinfo {
 	int maxfd;
 };
 
-struct chatinfo chats[MAXCHATS];
+struct chatinfo chats[MAX_CHATS];
 struct chatinfo lobby;
 int numofchats;
 int server_sockfd;
@@ -46,15 +46,16 @@ void AtInterruption(int sig)
 	char buf[BUFSIZE];
 	int i, j;
 	
+	perror("server interrupted");
 	memset(buf, '\0', BUFSIZE);
-	sprintf(buf, "%sServer was shut down. Connection closed.\n", SERV);
+	sprintf(buf, "%sServer was shut down. Connection closed.\n-------------------\n", SERV);
 	for (i = 0; i < numofchats; i++) {
-		for(j = 0; j < chats[i].curclients; j++) {
+		for (j = 0; j < chats[i].curclients; j++) {
 			write(chats[i].clients[j].fd, buf, strlen(buf));
 			close(chats[i].clients[j].fd);
 		}
 	}
-	for(j = 0; j < lobby.curclients; j++) {
+	for (j = 0; j < lobby.curclients; j++) {
 			write(lobby.clients[j].fd, buf, strlen(buf));
 			close(lobby.clients[j].fd);
 		}
@@ -62,7 +63,7 @@ void AtInterruption(int sig)
 	exit(0);
 }
 
-void InitChats()
+void InitChats(void)
 {
 	int i;
 	
@@ -70,7 +71,7 @@ void InitChats()
 	strcpy(lobby.title, "Lobby");
 	FD_ZERO(&lobby.clientfds);
 	
-	for (i = 0; i < MAXCHATS; i++) {
+	for (i = 0; i < MAX_CHATS; i++) {
 		memset(&(chats[i]), 0, sizeof(chats[i]));
 		chats[i].curclients = -1;
 		FD_ZERO(&chats[i].clientfds);
@@ -79,7 +80,7 @@ void InitChats()
 
 void WriteGreeting(int newclientfd)
 {
-	int i = 0;
+	int i = 0, cnt = 0;
 	char *out;
 	char buf[BUFSIZE];
 	
@@ -93,20 +94,36 @@ void WriteGreeting(int newclientfd)
 		write(newclientfd, out, strlen(out));
 		i++;
 	} else {
-		for (i = 0; i < numofchats;) {
+		for (i = 0; i < numofchats; i++) {
 			if (chats[i].curclients < 1)
 				continue;
 			memset(buf, '\0', BUFSIZE);
-			sprintf(buf, "%d: %s [%d/%d]\n", i+1, chats[i].title, 
+			if (chats[i].curclients == MAX_USERS_PER_CHAT) {
+				sprintf(buf, "\033[2;9m-: %s [%d/%d]\033[0m\033[2m (can't join; chat is full)\033[0m\n", 
+						chats[i].title, 
 						chats[i].curclients, MAX_USERS_PER_CHAT);
+			} else {
+				cnt++;
+				sprintf(buf, "%d: %s [%d/%d]\n", cnt, chats[i].title, 
+						chats[i].curclients, MAX_USERS_PER_CHAT);
+			}
 			write(newclientfd, buf, strlen(buf));
-			i++;
 		}
 	}
 	write(newclientfd, "\n", 1);
-	out = "R: Refresh list of chats\nC: Create new chat\n";
+	out = "R: Refresh list of chats\n";
 	write(newclientfd, out, strlen(out));
-	out = "Q: Quit\n\n\033[1mYour choice? [chat index/R/C/Q]\033[0m\n";
+	if (numofchats == MAX_CHATS)
+		out = "\033[2;9mC: Create new chat\033[0m\033[2m (max allowed chat number reached)\033[0m\n";
+	else
+		out = "C: Create new chat\n";
+	write(newclientfd, out, strlen(out));
+	if (numofchats == MAX_CHATS)
+		out = "Q: Quit\n\n\033[1mYour choice? [chat index/R/Q]\033[0m\n";
+	else if (numofchats < MAX_CHATS && cnt != 0)
+		out = "Q: Quit\n\n\033[1mYour choice? [chat index/R/C/Q]\033[0m\n";
+	else
+		out = "Q: Quit\n\n\033[1mYour choice? [R/C/Q]\033[0m\n";
 	write(newclientfd, out, strlen(out));
 }
 
@@ -124,8 +141,9 @@ void *Thread_Chat(void *);
 
 void CreateChat(struct clientinfo creator)
 {
-	int i;
+	int i, j;
 	char buf[BUFSIZE];
+	char *out;
 	struct chatinfo newchat;
 	pthread_t chatthr;
 	
@@ -133,8 +151,17 @@ void CreateChat(struct clientinfo creator)
 	memset(buf, '\0', BUFSIZE);
 	sprintf(buf, "%sEnter chat title:\n", SERV);
 	write(creator.fd, buf, strlen(buf));
-	memset(buf, '\0', BUFSIZE);
-	read(creator.fd, buf, 80);
+	while (1) {
+		memset(buf, '\0', BUFSIZE);
+		read(creator.fd, buf, 80);
+		if (strcmp(buf, "!killed") == 0) {
+			out = "!term";
+			write(creator.fd, out, strlen(out));
+			close(creator.fd);
+			return;
+		} else 
+			break;
+	}
 	buf[strlen(buf)-1] = '\0';
 	strcpy(newchat.title, buf);
 	newchat.curclients = 1;
@@ -145,7 +172,7 @@ void CreateChat(struct clientinfo creator)
 	memset(buf, '\0', BUFSIZE);
 	sprintf(buf, "%sYou created chat \033[1m%s\033[0m\n", SERV, newchat.title);
 	write(creator.fd, buf, strlen(buf));
-	for (i = 0; i < MAXCHATS; i++)
+	for (i = 0; i < MAX_CHATS; i++)
 		if (chats[i].curclients == -1) {
 			chats[i] = newchat;
 			break;
@@ -171,23 +198,21 @@ void *Thread_Chat(void *arg)
 	while (1) {
 		if (chats[id].curclients == 0)
 			break;
-			
+		/*			*/
 		tm.tv_sec = 1;
 		tm.tv_usec = 0; 
 		testset = chats[id].clientfds;
 		m = select(chats[id].maxfd+1, &testset, NULL, NULL, &tm);
 		if (m < 1)
 			continue;
-			
+		/*			*/	
 		for (i = 0; i <= chats[id].maxfd; i++) {
-			printf("maxfd = %d, id = %d, curclients = %d\n", chats[id].maxfd, id, chats[id].curclients);
 			if (FD_ISSET(i, &testset)) {
 				ioctl(i, FIONREAD, &m);
 				if (m <= 0)
 					continue;
 				memset(buf, '\0', BUFSIZE);
 				read(i, buf, BUFSIZE);
-				write(1, buf, sizeof(buf));
 				/* We need to find this client in the list by fd ('k' equals index). */
 				for (k = 0; k < chats[id].curclients; k++)
 					if (chats[id].clients[k].fd == i)
@@ -215,6 +240,23 @@ void *Thread_Chat(void *arg)
 					WriteGreeting(j);
 					continue;
 				}
+				if (strcmp(buf, "!killed") == 0) {
+					/* Send some messages. */
+					printf("Client %s (fd %d) leaved\n", 
+							chats[id].clients[k].name, 
+							chats[id].clients[k].fd);
+					memset(buf, '\0', BUFSIZE);
+					sprintf(buf, "%s\033[1;7;38;5;%dm%s\033[0m leaved this chat\n", 
+							SERV, chats[id].clients[k].col, 
+							chats[id].clients[k].name);
+					for (j = 0; j < chats[id].curclients; j++)
+						if (j != k)
+							write(chats[id].clients[j].fd, buf, strlen(buf));
+					/* Erase client from chat and discard him. */
+					EraseClientFromChat(&chats[id], k);
+					continue;
+				}
+				write(1, buf, sizeof(buf));
 				/* Format and send message to everyone in this chat. */
 				for (j = 0; j < chats[id].curclients; j++) {
 					if (j != k) {
@@ -228,11 +270,11 @@ void *Thread_Chat(void *arg)
 			}
 		}
 	}
-	
-	/* Here goes chat deletion: mark this chat as creatable. */
+	/*			*/
+	/* Here goes chat deletion: mark this chat as re-creatable. */
 	numofchats--;
 	chats[id].curclients = -1;
-	
+	perror("Chat thread terminated");
 	pthread_exit(NULL);
 }
 
@@ -246,18 +288,18 @@ void *Thread_Lobby(void *arg)
 	
 	while (1) {
 		if (lobby.curclients == 0) {
+			printf("No clients in lobby.\n");
 			sleep(1);
 			continue;
 		}
+		printf("%d client[s] in lobby.\n", lobby.curclients);
 		tm.tv_sec = 1;
 		tm.tv_usec = 0; 
 		testfds = lobby.clientfds;
-		perror("before select");
 		res = select(lobby.maxfd+1, &testfds, NULL, NULL, &tm);
 		if (res < 1)
 			continue;
 		else {
-			perror("after select");
 			for (i = 0; i <= lobby.maxfd; i++) {
 				if (FD_ISSET(i, &testfds)) {
 					ioctl(i, FIONREAD, &res);
@@ -266,11 +308,18 @@ void *Thread_Lobby(void *arg)
 					perror("Trying to read");
 					memset(buf, '\0', BUFSIZE);
 					read(i, buf, BUFSIZE);
+					/*			*/
 					/* Find client by fd among our clients. 'j' equals index. */
 					for (j = 0; j < lobby.curclients; j++)
 							if (lobby.clients[j].fd == i)
 								break;
-
+					if (strcmp(buf, "!killed") == 0) {
+						out = "!term";
+						write(i, out, strlen(out));
+						EraseClientFromChat(&lobby, j);
+						close(i);
+						continue;
+					}
 					res = 0;
 					res = (int)strtol(buf, NULL, 10);
 					perror("converted res");
@@ -280,23 +329,27 @@ void *Thread_Lobby(void *arg)
 						perror("res was number");
 						/* Find chat (because 'res' is not a valid index) */
 						l = 0;
-						for (k = 0; k < MAXCHATS; k++) {
-							if (chats[k].curclients != -1) {
+						for (k = 0; k < MAX_CHATS; k++) {
+							if (chats[k].curclients != -1 && chats[k].curclients < MAX_USERS_PER_CHAT) {
 								l++;
 								if (l == res)
 									break;
 							}
 						}
+						if (l == 0) {
+							out = "Chat you choose to join is not a chat or is full. Try again\n\n\n";
+							write(i, out, strlen(out));
+							WriteGreeting(i);
+							continue;
+						}
 						
 						/* Add client to chat with number 'k'. */
 						FD_SET(i, &chats[k].clientfds);
-						printf("maxfd = %d, i = %d, res = %d\n", chats[k].maxfd, i, res);
 						if (i > chats[k].maxfd)
 							chats[k].maxfd = i;
 						/* Add to chat and erase from lobby. */
 						chats[k].clients[chats[k].curclients] = lobby.clients[j];
 						chats[k].curclients++;
-						printf("curclients = %d\n", chats[k].curclients);
 						EraseClientFromChat(&lobby, j);
 						/* Send some messages. */
 						memset(buf, '\0', BUFSIZE);
@@ -310,19 +363,19 @@ void *Thread_Lobby(void *arg)
 							if (chats[k].clients[l].fd != i)
 								write(chats[k].clients[l].fd, buf, strlen(buf));
 					} else {
-						// In other cases there was a char command (or garbage) in 'buf'.
+						/* In other cases there was a char command (or garbage) in 'buf'. */
 						perror("res was char");
 						if (strcmp(buf, "R\n") == 0 || strcmp(buf, "r\n") == 0) {
 							out = "\n\n\n";
 							write(i, out, strlen(out));
 							WriteGreeting(i);
-						} else if (strcmp(buf, "C\n") == 0 || strcmp(buf, "c\n") == 0) {
+						} else if ((strcmp(buf, "C\n") == 0 || strcmp(buf, "c\n") == 0) && numofchats < MAX_CHATS) {
 							/* Start a dialog to create a chat. */
 							CreateChat(lobby.clients[j]);
 							/* Erase chat creator from the lobby. */
 							EraseClientFromChat(&lobby, j);
 						} else if (strcmp(buf, "Q\n") == 0 || strcmp(buf, "q\n") == 0) {
-							// Close connection (erase info) and terminate client.
+							/* Close connection (erase info) and terminate client. */
 							out = "!term";
 							write(i, out, strlen(out));
 							EraseClientFromChat(&lobby, j);
@@ -337,7 +390,7 @@ void *Thread_Lobby(void *arg)
 			}
 		}
 	}
-
+	perror("Lobby thread terminated");
 	pthread_exit(NULL);
 }
 
@@ -346,12 +399,13 @@ void main(void)
 	int server_len;
 	struct sockaddr_in server_address;
 	char buf[BUFSIZE];
+	char *out;
 	
-	// Initialize things.
+	/* Initialize things. */
 	signal(SIGINT, AtInterruption);
 	numofchats = 0;
 	InitChats();
-	// Create and bind listening socket.
+	/* Create and bind listening socket. */
 	server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_sockfd == -1) {
 		perror("Failed to create server socket");
@@ -366,20 +420,20 @@ void main(void)
 		exit(2);
 	}
 	
-	// Output address of the server.
-	/*memset(buf, '\0', BUFSIZE);
+	/* Output address of the server. */
+	memset(buf, '\0', BUFSIZE);
 	gethostname(buf, BUFSIZE);
 	printf("name = %s\n", buf);
 	struct hostent *hostinfo;
 	hostinfo = gethostbyname(buf);
 	char **addrs = hostinfo->h_addr_list;
-	while(*addrs) {
+	while (*addrs) {
 		printf("ip = %s\n", inet_ntoa(*(struct in_addr *)*addrs));
 		addrs++;
 	}
-	*/
 	
-	// Listen to new incoming connections.
+	
+	/* Listen to new incoming connections. */
 	if (listen(server_sockfd, 5) == -1)
 		perror("Failed to listen server socket"); 
 	
@@ -395,7 +449,7 @@ void main(void)
 		int client_len;
 		int newclientfd;
 		
-		// Add new connected client.
+		/* Add new connected client. */
 		memset(&newclient, 0, sizeof(newclient));
 		client_len = sizeof(client_address);
 		newclientfd = accept(server_sockfd, 
@@ -404,12 +458,21 @@ void main(void)
 			perror("Failed to accept incoming connection");
 			continue;
 		}
+		if (lobby.curclients == MAX_USERS_IN_LOBBY) {
+			out = "There are currently too many users in lobby.\n";
+			write(newclientfd, out, strlen(out));
+			out = "Please, try to reconnect in a few seconds.\n";
+			write(newclientfd, out, strlen(out));
+			exit(0);
+		}
 		
 		memset(buf, '\0', BUFSIZE);
 		sprintf(buf, "%sWhat's your nickname?\n", SERV);
 		write(newclientfd, buf, strlen(buf));
 		memset(buf, '\0', BUFSIZE);
 		read(newclientfd, buf, 80);
+		if (strcmp(buf, "!killed") == 0)
+			continue;
 		buf[strlen(buf)-1] = '\0';
 		strcpy(newclient.name, buf);
 		srand(time(NULL));
@@ -419,9 +482,9 @@ void main(void)
 		newclient.addr = client_address;
 		lobby.clients[lobby.curclients] = newclient;
 		FD_SET(newclientfd, &lobby.clientfds);
-		printf("Added client; fd = %d, name = %s, color = %d\n", 
-				lobby.clients[lobby.curclients].fd,
+		printf("Added client %s with fd %d and color %d\n", 
 				lobby.clients[lobby.curclients].name,
+				lobby.clients[lobby.curclients].fd,
 				lobby.clients[lobby.curclients].col);
 		lobby.curclients++;
 		if (newclientfd > lobby.maxfd)
