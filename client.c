@@ -10,19 +10,28 @@
 #include <string.h>
 #include <pthread.h>
 #include <signal.h>
+#include <ncurses.h>
+#include <errno.h>
 
 #define BUFSIZE 512
 
 int sockfd;
+WINDOW *inputW;
+WINDOW *outputW;
+
+void AtExit(int code)
+{
+	close(sockfd);
+	delwin(inputW);
+	delwin(outputW);
+	endwin();
+	exit(code);
+}
 
 void AtInterruption(int sig)
 {
-	char *out;
-	
-	out = "!killed";
-	write(sockfd, out, strlen(out));
-	close(sockfd);
-	exit(sig);
+	write(sockfd, "!killed", 7);
+	AtExit(sig);
 }
 
 void *ReceiverThread(void *arg)
@@ -32,39 +41,54 @@ void *ReceiverThread(void *arg)
 	while (1) {
 		memset(buf, '\0', BUFSIZE);
 		if (read(sockfd, buf, BUFSIZE) <= 0) {
-			printf("Failed to read from server.\nIf server"
-				   " was shut down, ignore this message.\n");
+			wprintw(outputW, "Failed to read from server.\nIf server"
+							 " was shut down, ignore this message.\n");
 			break;
 		}
 		/* This is signal from server 
 		 * (while attempting to quit in lobby or interrupt itself). 
 		 */
 		if (strcmp(buf, "!term") == 0) {
-			write(1, "\r", 1);
-			AtInterruption(6);
+			AtInterruption(7);
 			break;
 		}
-
-		write(1, "\33[2K\r", 5);
-		write(1, buf, strlen(buf));
-		write(1, "\033[1;7m-ME:\033[0m ", 15);
+		wprintw(outputW, "%s\n", buf);
+		wrefresh(outputW);
+		wrefresh(inputW);
 	}
 
 	pthread_exit(NULL);
 }
 
-void SenderThread(void)
+void SenderThread(char *name)
 {
 	char buf[BUFSIZE];
 	
+	if (write(sockfd, name, strlen(name)) == -1) {
+		wprintw(outputW, "Failed to send nickname to server: %s.\n", strerror(errno));
+		wrefresh(outputW);
+	}
 	while (1) {
+		wmove(inputW, 1, 0);
+		wclrtobot(inputW);
+		wborder(inputW, ' ', ' ', 0, ' ', '-', '-', ' ', ' ');
 		memset(buf, '\0', BUFSIZE);
-		write(1, "\033[1;7m-ME:\033[0m ", 15);
-		read(0, buf, BUFSIZE);
+		attron(A_BOLD | A_STANDOUT);
+		wprintw(inputW, "-ME: ");
+		attroff(A_BOLD | A_STANDOUT);
+		wrefresh(inputW);
+		wgetnstr(inputW, buf, BUFSIZE);
+		wrefresh(inputW);
 		if (write(sockfd, buf, strlen(buf)) == -1) {
-			perror("Failed to write to server");
+			wprintw(outputW, "Failed to write to server: %s.\n", strerror(errno));
+			wrefresh(outputW);
 			continue;
 		}
+		attron(A_BOLD | A_STANDOUT);
+		wprintw(outputW, "-ME: ");
+		attroff(A_BOLD | A_STANDOUT);
+		wprintw(outputW, "%s\n", buf);
+		wrefresh(outputW);
 	}
 }
 
@@ -75,34 +99,60 @@ void main(int argc, char *argv[])
 	int result;
 	pthread_t sender, receiver;
 	
-	if (argc != 2) {
-		printf("\nUsage: \33[1m./client server-ip-address\33[0m\n\n");
-		exit(6);
-	}
 	signal(SIGINT, AtInterruption);
+	if (initscr() == NULL) {
+		printf("Error during initializing ncurses.\n");
+		AtExit(1);
+	}
+	inputW = newwin(4, COLS, LINES-4, 0);
+	if (inputW == NULL) {
+		printw("Failed to initialize input window.\n");
+		refresh();
+		AtExit(2);
+	} 
+	outputW = newwin(LINES-4, COLS, 0, 0);
+	if (outputW == NULL) {
+		printw("Failed to initialize output window.\n");
+		refresh();
+		AtExit(2);
+	}
+	scrollok(inputW, TRUE);
+	scrollok(outputW, TRUE);
+	wborder(inputW, ' ', ' ', 0, ' ', '-', '-', ' ', ' ');
+	wrefresh(inputW);
+	if (argc != 3) {
+		wprintw(outputW, "\nUsage: ");
+		attron(A_BOLD);
+		wprintw(outputW, "%s server-ip-address nickname\n\n", argv[0]);
+		attroff(A_BOLD);
+		wrefresh(outputW);
+		AtExit(2);
+	}
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd == -1) {
-		perror("Failed to create client socket");
-		exit(1);
+		wprintw(outputW, "Failed to create client socket: %s.\n", strerror(errno));
+		wrefresh(outputW);
+		AtExit(3);
 	}
 	address.sin_family = AF_INET;
 	address.sin_addr.s_addr = inet_addr(argv[1]);
 	address.sin_port = htons(9000);
 	len = sizeof(address);
 	if (connect(sockfd, (struct sockaddr *)&address, len) == -1) {
-		perror("Failed to connect to server");
-		exit(3);
+		wprintw(outputW, "Failed to connect to server: %s.\n", strerror(errno));
+		wrefresh(outputW);
+		AtExit(4);
 	}
 	if (pthread_create(&receiver, NULL, ReceiverThread, NULL) != 0) {
-		perror("Failed to create receiver thread");
-		AtInterruption(4);
-	}
-	SenderThread();
-	if (pthread_join(receiver, NULL) != 0) {
-		perror("Failed to join receiver thread");
+		wprintw(outputW, "Failed to create receiver thread: %s.\n", strerror(errno));
+		wrefresh(outputW);
 		AtInterruption(5);
 	}
-
-	close(sockfd);
-	exit(0);
+	SenderThread(argv[2]);
+	if (pthread_join(receiver, NULL) != 0) {
+		wprintw(outputW, "Failed to join receiver thread: %s.\n", strerror(errno));
+		wrefresh(outputW);
+		AtInterruption(6);
+	}
+	AtExit(0);
 }

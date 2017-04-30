@@ -18,7 +18,7 @@
 #define MAX_CHATS 32
 #define MAX_USERS_PER_CHAT 32
 #define MAX_USERS_IN_LOBBY 32
-#define SERV "\033[1;7;99mSERVER:\033[0m "
+#define SERV "SERVER: "
 
 struct clientinfo {
 	int fd;
@@ -94,14 +94,14 @@ void WriteGreeting(int newclientfd)
 	sprintf(buf, "%sYou may join one of existing chats "
 				 "or create a new one.\n\n", SERV);
 	write(newclientfd, buf, strlen(buf));
-	out = "\033[1mList of chats:\033[0m\n";
+	out = "List of chats:\n";
 	write(newclientfd, out, strlen(out));
 	if (pthread_mutex_lock(&mx_numofchats) != 0)
 		perror("Mutex lock error 1 in WriteGreeting");
 	if (pthread_mutex_lock(&mx_allchats) != 0)
 		perror("Mutex lock error 2 in WriteGreeting");
 	if (numofchats == 0) {
-		out = "\033[2m<no existing chats>\033[0m\n";
+		out = "<no existing chats>\n";
 		write(newclientfd, out, strlen(out));
 		i++;
 	} else {
@@ -110,8 +110,8 @@ void WriteGreeting(int newclientfd)
 				continue;
 			memset(buf, '\0', BUFSIZE);
 			if (chats[i].curclients == MAX_USERS_PER_CHAT) {
-				sprintf(buf, "\033[2;9m-: %s [%d/%d]\033[0m\033[2m "
-							 "(can't join; chat is full)\033[0m\n", 
+				sprintf(buf, "-: %s [%d/%d] "
+							 "(can't join; chat is full)\n", 
 						chats[i].title, 
 						chats[i].curclients, MAX_USERS_PER_CHAT);
 			} else {
@@ -126,17 +126,17 @@ void WriteGreeting(int newclientfd)
 	out = "R: Refresh list of chats\n";
 	write(newclientfd, out, strlen(out));
 	if (numofchats == MAX_CHATS)
-		out = "\033[2;9mC: Create new chat\033[0m\033[2m "
-			  "(max allowed chat number reached)\033[0m\n";
+		out = "C: Create new chat "
+			  "(max allowed chat number reached)\n";
 	else
 		out = "C: Create new chat\n";
 	write(newclientfd, out, strlen(out));
 	if (numofchats == MAX_CHATS)
-		out = "Q: Quit\n\n\033[1mYour choice? [chat index/R/Q]\033[0m\n";
+		out = "Q: Quit\n\nYour choice? [chat index/R/Q]\n";
 	else if (numofchats < MAX_CHATS && cnt != 0)
-		out = "Q: Quit\n\n\033[1mYour choice? [chat index/R/C/Q]\033[0m\n";
+		out = "Q: Quit\n\nYour choice? [chat index/R/C/Q]\n";
 	else
-		out = "Q: Quit\n\n\033[1mYour choice? [R/C/Q]\033[0m\n";
+		out = "Q: Quit\n\nYour choice? [R/C/Q]\n";
 	write(newclientfd, out, strlen(out));
 	if (pthread_mutex_unlock(&mx_numofchats) != 0)
 		perror("Mutex unlock error 1 in WriteGreeting");
@@ -179,7 +179,6 @@ void CreateChat(struct clientinfo creator)
 		} else 
 			break;
 	}
-	buf[strlen(buf)-1] = '\0';
 	strcpy(newchat.title, buf);
 	newchat.curclients = 1;
 	/* Add client to new chat. */
@@ -187,7 +186,7 @@ void CreateChat(struct clientinfo creator)
 	newchat.maxfd = creator.fd;
 	newchat.clients[0] = creator;
 	memset(buf, '\0', BUFSIZE);
-	sprintf(buf, "%sYou created chat \033[1m%s\033[0m\n",
+	sprintf(buf, "%sYou created chat %s\n",
 			SERV, newchat.title);
 	write(creator.fd, buf, strlen(buf));
 	
@@ -255,16 +254,14 @@ void *Thread_Chat(void *arg)
 				for (k = 0; k < chats[id].curclients; k++)
 					if (chats[id].clients[k].fd == i)
 						break;
-				if (strcmp(buf, "!exit\n") == 0) {
+				if (strcmp(buf, "!exit") == 0) {
 					/* Send some messages. */
 					printf("Client %s (fd %d) leaved\n", 
 							chats[id].clients[k].name, 
 							chats[id].clients[k].fd);
 					memset(buf, '\0', BUFSIZE);
-					sprintf(buf, "%s\033[1;7;38;5;%dm%s\033[0m "
-								 "leaved this chat\n", 
-							SERV, chats[id].clients[k].col, 
-							chats[id].clients[k].name);
+					sprintf(buf, "%s%s leaved this chat\n", 
+							SERV, chats[id].clients[k].name);
 					for (j = 0; j < chats[id].curclients; j++)
 						if (j != k)
 							write(chats[id].clients[j].fd, buf, strlen(buf));
@@ -289,10 +286,8 @@ void *Thread_Chat(void *arg)
 							chats[id].clients[k].name, 
 							chats[id].clients[k].fd);
 					memset(buf, '\0', BUFSIZE);
-					sprintf(buf, "%s\033[1;7;38;5;%dm%s\033[0m "
-								 "leaved this chat\n", 
-							SERV, chats[id].clients[k].col, 
-							chats[id].clients[k].name);
+					sprintf(buf, "%s%s leaved this chat\n", 
+							SERV, chats[id].clients[k].name);
 					for (j = 0; j < chats[id].curclients; j++)
 						if (j != k)
 							write(chats[id].clients[j].fd, buf, strlen(buf));
@@ -300,13 +295,12 @@ void *Thread_Chat(void *arg)
 					EraseClientFromChat(&chats[id], k);
 					continue;
 				}
-				write(1, buf, sizeof(buf));
+			//	write(1, buf, sizeof(buf));
 				/* Format and send message to everyone in this chat. */
 				for (j = 0; j < chats[id].curclients; j++) {
 					if (j != k) {
 						memset(mes, '\0', BUFSIZE+100);
-						sprintf(mes, "\033[1;7;38;5;%dm%s:\033[0m %s", 
-								chats[id].clients[k].col, 
+						sprintf(mes, "%s: %s", 
 								chats[id].clients[k].name, buf);
 						write(chats[id].clients[j].fd, mes, strlen(mes));
 					}
@@ -365,7 +359,6 @@ void *Thread_Lobby(void *arg)
 					ioctl(i, FIONREAD, &res);
 					if (res <= 0)
 						continue;
-					perror("Trying to read");
 					memset(buf, '\0', BUFSIZE);
 					read(i, buf, BUFSIZE);
 					
@@ -389,7 +382,6 @@ void *Thread_Lobby(void *arg)
 					if (res != 0) {
 						/* Find chat (because 'res' is not a valid index) */
 						l = 0;
-						perror("1");
 						if (pthread_mutex_lock(&mx_allchats) != 0)
 							perror("Mutex lock error 2 in Thread_Lobby");
 						for (k = 0; k < MAX_CHATS; k++) {
@@ -402,7 +394,6 @@ void *Thread_Lobby(void *arg)
 						}
 						if (pthread_mutex_unlock(&mx_allchats) != 0)
 							perror("Mutex unlock error 2 in Thread_Lobby");
-						perror("2");
 						if (l == 0) {
 							out = "Chat you choose to join is not a chat"
 								  " or is full. Try again.\n\n\n";
@@ -414,7 +405,6 @@ void *Thread_Lobby(void *arg)
 						/* Add client to chat with number 'k'. */
 						if (pthread_mutex_lock(&chats[k].mx_chat) != 0)
 							perror("Mutex lock error 3 in Thread_Lobby");
-						perror("3");
 						FD_SET(i, &chats[k].clientfds);
 						if (i > chats[k].maxfd)
 							chats[k].maxfd = i;
@@ -422,43 +412,38 @@ void *Thread_Lobby(void *arg)
 						chats[k].clients[chats[k].curclients] = lobby.clients[j];
 						chats[k].curclients++;
 						EraseClientFromChat(&lobby, j);
-						perror("4");
 						/* Send some messages. */
 						memset(buf, '\0', BUFSIZE);
-						sprintf(buf, "%sYou joined chat \033[1m%s\033[0m\n", 
+						sprintf(buf, "%sYou joined chat %s\n", 
 								SERV, chats[k].title);
 						write(i, buf, strlen(buf));
 						memset(buf, '\0', BUFSIZE);
-						sprintf(buf, "%s\033[1;7;38;5;%dm%s\033[0m "
-									 "joined this chat\n", 
-								SERV, lobby.clients[j].col, 
-								lobby.clients[j].name);
+						sprintf(buf, "%s%s joined this chat\n", 
+								SERV, lobby.clients[j].name);
 						for (l = 0; l < chats[k].curclients; l++)
 							if (chats[k].clients[l].fd != i)
 								write(chats[k].clients[l].fd, buf, strlen(buf));
-						perror("5");
 						if (pthread_mutex_unlock(&chats[k].mx_chat) != 0)
 							perror("Mutex unlock error 3 in Thread_Lobby");
-						perror("6");
 					} else {
 						/* In other cases there was a char command 
 						 * (or garbage) in 'buf'. 
 						 */
 						perror("res was char");
-						if (strcmp(buf, "R\n") == 0
-						 || strcmp(buf, "r\n") == 0) {
+						if (strcmp(buf, "R") == 0
+						 || strcmp(buf, "r") == 0) {
 							out = "\n\n\n";
 							write(i, out, strlen(out));
 							WriteGreeting(i);
-						} else if ((strcmp(buf, "C\n") == 0 
-								 || strcmp(buf, "c\n") == 0) 
+						} else if ((strcmp(buf, "C") == 0 
+								 || strcmp(buf, "c") == 0) 
 								 && numofchats < MAX_CHATS) {
 							/* Start a dialog to create a chat. */
 							CreateChat(lobby.clients[j]);
 							/* Erase chat creator from the lobby. */
 							EraseClientFromChat(&lobby, j);
-						} else if (strcmp(buf, "Q\n") == 0 
-								|| strcmp(buf, "q\n") == 0) {
+						} else if (strcmp(buf, "Q") == 0 
+								|| strcmp(buf, "q") == 0) {
 							/* Close connection (erase info) 
 							 * and terminate client. 
 							 */
@@ -562,13 +547,9 @@ void main(void)
 		if (pthread_mutex_unlock(&lobby.mx_chat) != 0)
 			perror("Mutex unlock error 1 in main");
 		memset(buf, '\0', BUFSIZE);
-		sprintf(buf, "%sWhat's your nickname?\n", SERV);
-		write(newclientfd, buf, strlen(buf));
-		memset(buf, '\0', BUFSIZE);
 		read(newclientfd, buf, 80);
 		if (strcmp(buf, "!killed") == 0)
 			continue;
-		buf[strlen(buf)-1] = '\0';
 		strcpy(newclient.name, buf);
 		srand(time(NULL));
 		newclient.col = rand() % 255 + 1;
