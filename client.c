@@ -21,6 +21,7 @@ WINDOW *outputW;
 
 void AtExit(int code)
 {
+	wgetch(outputW);
 	close(sockfd);
 	delwin(inputW);
 	delwin(outputW);
@@ -73,9 +74,9 @@ void SenderThread(char *name)
 		wclrtobot(inputW);
 		wborder(inputW, ' ', ' ', 0, ' ', '-', '-', ' ', ' ');
 		memset(buf, '\0', BUFSIZE);
-		attron(A_BOLD | A_STANDOUT);
+		wattron(inputW, A_BOLD | A_STANDOUT);
 		wprintw(inputW, "-ME: ");
-		attroff(A_BOLD | A_STANDOUT);
+		wattroff(inputW, A_BOLD | A_STANDOUT);
 		wrefresh(inputW);
 		wgetnstr(inputW, buf, BUFSIZE);
 		wrefresh(inputW);
@@ -84,9 +85,9 @@ void SenderThread(char *name)
 			wrefresh(outputW);
 			continue;
 		}
-		attron(A_BOLD | A_STANDOUT);
+		wattron(outputW, A_BOLD | A_STANDOUT);
 		wprintw(outputW, "-ME: ");
-		attroff(A_BOLD | A_STANDOUT);
+		wattroff(outputW, A_BOLD | A_STANDOUT);
 		wprintw(outputW, "%s\n", buf);
 		wrefresh(outputW);
 	}
@@ -96,8 +97,7 @@ void main(int argc, char *argv[])
 {
 	int len;
 	struct sockaddr_in address;
-	int result;
-	pthread_t sender, receiver;
+	pthread_t receiver;
 	
 	signal(SIGINT, AtInterruption);
 	if (initscr() == NULL) {
@@ -122,9 +122,9 @@ void main(int argc, char *argv[])
 	wrefresh(inputW);
 	if (argc != 3) {
 		wprintw(outputW, "\nUsage: ");
-		attron(A_BOLD);
+		wattron(outputW, A_BOLD);
 		wprintw(outputW, "%s server-ip-address nickname\n\n", argv[0]);
-		attroff(A_BOLD);
+		wattroff(outputW, A_BOLD);
 		wrefresh(outputW);
 		AtExit(2);
 	}

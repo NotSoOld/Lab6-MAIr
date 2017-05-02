@@ -86,7 +86,7 @@ void InitChats(void)
 
 void WriteGreeting(int newclientfd)
 {
-	int i = 0, cnt = 0, mi;
+	int i = 0, cnt = 0;
 	char *out;
 	char buf[BUFSIZE];
 	
@@ -158,7 +158,7 @@ void *Thread_Chat(void *);
 
 void CreateChat(struct clientinfo creator)
 {
-	int i, j, mi;
+	int i;
 	char buf[BUFSIZE];
 	char *out;
 	struct chatinfo newchat;
@@ -328,7 +328,7 @@ void *Thread_Chat(void *arg)
 
 void *Thread_Lobby(void *arg)
 {
-	int i, j, k, l, res, mi;
+	int i, j, k, l, res;
 	fd_set testfds;
 	char buf[BUFSIZE];
 	char *out;
